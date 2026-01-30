@@ -14,8 +14,8 @@ echo "📦 Обновление системных пакетов..."
 apt-get update
 
 # Установка зависимостей
-echo "📦 Установка Python и FFmpeg..."
-apt-get install -y python3 python3-pip ffmpeg
+echo "📦 Установка Python..."
+apt-get install -y python3 python3-pip
 
 # Установка Python библиотек
 echo "📦 Установка Python библиотек..."
