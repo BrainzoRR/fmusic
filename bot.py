@@ -220,15 +220,9 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.edit_message_text('⏬ *Скачиваю трек...*\n\n⏱ Это может занять 30-60 секунд', parse_mode='Markdown')
         
-        output_path = os.path.join(TEMP_DIR, f'{video_id}.mp3')
-        
+        # Скачиваем аудио БЕЗ конвертации (быстрее и не требует FFmpeg)
         ydl_opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
+            'format': 'bestaudio[ext=m4a]/bestaudio',
             'outtmpl': os.path.join(TEMP_DIR, f'{video_id}.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
@@ -252,11 +246,15 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 title = info.get('title', 'Unknown')
                 uploader = info.get('uploader', 'Unknown')
                 duration = info.get('duration', 0)
+                
+                # Получаем реальное имя скачанного файла
+                downloaded_file = ydl.prepare_filename(info)
             
             await query.edit_message_text('📤 *Отправляю трек...*', parse_mode='Markdown')
             
-            if os.path.exists(output_path):
-                with open(output_path, 'rb') as audio:
+            # Проверяем что файл существует
+            if os.path.exists(downloaded_file):
+                with open(downloaded_file, 'rb') as audio:
                     await context.bot.send_audio(
                         chat_id=query.message.chat_id,
                         audio=audio,
@@ -271,8 +269,8 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # Удаляем временный файл
                 try:
-                    os.remove(output_path)
-                    logger.info(f'Файл удалён: {output_path}')
+                    os.remove(downloaded_file)
+                    logger.info(f'Файл удалён: {downloaded_file}')
                 except Exception as e:
                     logger.error(f'Ошибка при удалении файла: {e}')
             else:
@@ -295,12 +293,13 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
             
-            # Очистка при ошибке
-            if os.path.exists(output_path):
-                try:
-                    os.remove(output_path)
-                except:
-                    pass
+            # Очистка при ошибке - удаляем все файлы с этим video_id
+            try:
+                for file in os.listdir(TEMP_DIR):
+                    if file.startswith(video_id):
+                        os.remove(os.path.join(TEMP_DIR, file))
+            except:
+                pass
     
     except Exception as e:
         logger.error(f'Критическая ошибка в download_and_send: {e}\n{traceback.format_exc()}')
