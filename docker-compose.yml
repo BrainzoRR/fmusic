@@ -2,9 +2,16 @@ version: '3.8'
 
 services:
   bot:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
     volumes:
       - ./temp_audio:/app/temp_audio
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
