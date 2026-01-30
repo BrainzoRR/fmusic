@@ -121,6 +121,7 @@ def format_duration(seconds):
     """Форматирование длительности"""
     if not seconds:
         return '?:??'
+    seconds = int(seconds)  # Преобразуем в целое число
     minutes = seconds // 60
     secs = seconds % 60
     return f'{minutes}:{secs:02d}'
