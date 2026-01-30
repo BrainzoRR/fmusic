@@ -1,8 +1,9 @@
 # bot.py
 import logging
 import os
+import traceback
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import yt_dlp
 
 # Настройка логирования
@@ -22,27 +23,70 @@ if not os.path.exists(TEMP_DIR):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приветственное сообщение"""
-    await update.message.reply_text(
-        '🎵 Привет! Я бот для скачивания музыки с YouTube.\n\n'
-        'Просто напишите название песни и исполнителя, например:\n'
-        '"Coldplay - Yellow"\n\n'
-        'Я найду несколько вариантов, вы выберете нужный, '
-        'и я скачаю полный трек для вас!'
-    )
+    try:
+        welcome_text = (
+            '🎵 *Привет! Я Music Bot!*\n\n'
+            '✨ Я помогу вам находить и скачивать музыку с YouTube.\n\n'
+            '📋 *Доступные команды:*\n'
+            '/find <название песни> - Найти и скачать трек\n'
+            '/help - Помощь и инструкция\n'
+            '/start - Показать это сообщение\n\n'
+            '🎯 *Пример использования:*\n'
+            '`/find kijin на скейте`\n'
+            '`/find coldplay yellow`\n\n'
+            '💡 Просто напишите команду /find и название песни!'
+        )
+        await update.message.reply_text(welcome_text, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f'Ошибка в start: {e}\n{traceback.format_exc()}')
+
+async def new_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Приветствие при добавлении бота в группу"""
+    try:
+        for member in update.message.new_chat_members:
+            if member.id == context.bot.id:
+                welcome_text = (
+                    '👋 *Привет всем! Спасибо, что добавили меня в чат!*\n\n'
+                    '🎵 Я Music Bot - помогу находить и скачивать музыку.\n\n'
+                    '📋 *Команды для работы со мной:*\n'
+                    '🔍 `/find <название>` - Найти трек\n'
+                    '❓ `/help` - Подробная инструкция\n\n'
+                    '🎯 *Пример:*\n'
+                    '`/find kijin на скейте`\n\n'
+                    '✅ Готов к работе! Пишите /find и название песни!'
+                )
+                await update.message.reply_text(welcome_text, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f'Ошибка в new_chat_member: {e}\n{traceback.format_exc()}')
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Справка по командам"""
-    await update.message.reply_text(
-        '📖 Как пользоваться ботом:\n\n'
-        '1. Напишите название песни и исполнителя\n'
-        '2. Выберите нужный трек из списка\n'
-        '3. Дождитесь скачивания\n'
-        '4. Получите полную песню!\n\n'
-        'Команды:\n'
-        '/start - Начать работу\n'
-        '/help - Показать эту справку\n\n'
-        '⚠️ Скачивание может занять некоторое время.'
-    )
+    try:
+        help_text = (
+            '📖 *Инструкция по использованию Music Bot*\n\n'
+            '🔍 *Как искать музыку:*\n'
+            '1. Напишите `/find` и название песни\n'
+            '2. Я найду несколько вариантов\n'
+            '3. Выберите нужный трек кнопкой\n'
+            '4. Дождитесь скачивания\n'
+            '5. Получите полную песню в MP3!\n\n'
+            '📋 *Команды:*\n'
+            '`/find <название>` - Найти трек\n'
+            '`/help` - Эта справка\n'
+            '`/start` - Приветствие\n\n'
+            '💡 *Примеры запросов:*\n'
+            '`/find kijin на скейте`\n'
+            '`/find imagine dragons bones`\n'
+            '`/find моя оборона`\n\n'
+            '⚠️ *Обратите внимание:*\n'
+            '• Скачивание занимает 10-60 секунд\n'
+            '• Работаю в личке и группах\n'
+            '• Показываю 5 лучших результатов\n\n'
+            '❤️ Приятного прослушивания!'
+        )
+        await update.message.reply_text(help_text, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f'Ошибка в help_command: {e}\n{traceback.format_exc()}')
 
 def search_youtube(query, max_results=5):
     """Поиск видео на YouTube"""
@@ -69,194 +113,233 @@ def search_youtube(query, max_results=5):
                         })
                 return results
     except Exception as e:
-        logger.error(f'Ошибка поиска на YouTube: {e}')
+        logger.error(f'Ошибка поиска на YouTube: {e}\n{traceback.format_exc()}')
     
     return []
 
 def format_duration(seconds):
     """Форматирование длительности"""
     if not seconds:
-        return 'Неизвестно'
+        return '?:??'
     minutes = seconds // 60
     secs = seconds % 60
     return f'{minutes}:{secs:02d}'
 
-async def search_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Поиск музыки по запросу"""
-    query = update.message.text
-    
-    search_msg = await update.message.reply_text(f'🔍 Ищу: {query}...')
-    
+async def find_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Поиск музыки по команде /find"""
     try:
-        results = search_youtube(query)
+        # Безопасная проверка аргументов
+        args = context.args if context.args is not None else []
         
-        if results:
-            keyboard = []
-            for i, track in enumerate(results):
-                duration = format_duration(track['duration'])
-                button_text = f"{i+1}. {track['title'][:50]}... ({duration})"
-                keyboard.append([InlineKeyboardButton(
-                    button_text, 
-                    callback_data=f"download_{track['id']}"
-                )])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await search_msg.edit_text(
-                f'🎵 Найдено {len(results)} треков по запросу:\n'
-                f'"{query}"\n\n'
-                'Выберите нужный трек:',
-                reply_markup=reply_markup
+        if not args or len(args) == 0:
+            await update.message.reply_text(
+                '❌ *Ошибка!* Укажите название песни.\n\n'
+                '🎯 *Пример:*\n'
+                '`/find kijin на скейте`',
+                parse_mode='Markdown'
             )
-        else:
+            return
+        
+        # Собираем запрос из аргументов
+        query = ' '.join(args)
+        logger.info(f'Поиск музыки: {query}')
+        
+        search_msg = await update.message.reply_text(f'🔍 Ищу: *{query}*...', parse_mode='Markdown')
+        
+        try:
+            results = search_youtube(query)
+            
+            if results and len(results) > 0:
+                # Создаём кнопки для выбора
+                keyboard = []
+                for i, track in enumerate(results):
+                    duration = format_duration(track['duration'])
+                    # Сокращаем название для кнопки
+                    title = track['title']
+                    if len(title) > 60:
+                        title = title[:57] + '...'
+                    button_text = f"{i+1}. {title} ({duration})"
+                    keyboard.append([InlineKeyboardButton(
+                        button_text, 
+                        callback_data=f"download_{track['id']}"
+                    )])
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await search_msg.edit_text(
+                    f'🎵 *Найдено {len(results)} треков:*\n'
+                    f'Запрос: _{query}_\n\n'
+                    '👇 Выберите нужный трек:',
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+            else:
+                await search_msg.edit_text(
+                    f'❌ *Ничего не найдено*\n\n'
+                    f'Запрос: _{query}_\n\n'
+                    '💡 Попробуйте изменить запрос или проверьте название.',
+                    parse_mode='Markdown'
+                )
+        except Exception as search_error:
+            logger.error(f'Ошибка при поиске YouTube: {search_error}\n{traceback.format_exc()}')
             await search_msg.edit_text(
-                f'❌ Ничего не найдено по запросу: {query}\n'
-                'Попробуйте изменить запрос.'
+                '❌ *Произошла ошибка при поиске*\n\n'
+                '🔄 Попробуйте ещё раз через несколько секунд.',
+                parse_mode='Markdown'
             )
     
     except Exception as e:
-        logger.error(f'Ошибка при поиске: {e}')
-        await search_msg.edit_text(
-            '❌ Произошла ошибка при поиске.\n'
-            'Попробуйте ещё раз позже.'
-        )
+        logger.error(f'Критическая ошибка в find_music: {e}\n{traceback.format_exc()}')
+        try:
+            await update.message.reply_text(
+                '❌ *Произошла критическая ошибка*\n\n'
+                'Попробуйте перезапустить команду.',
+                parse_mode='Markdown'
+            )
+        except:
+            pass
 
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Скачивание и отправка музыки"""
     query = update.callback_query
-    await query.answer()
-    
-    video_id = query.data.replace('download_', '')
-    video_url = f'https://www.youtube.com/watch?v={video_id}'
-    
-    await query.edit_message_text('⏬ Скачиваю трек... Это может занять несколько минут.')
-    
-    output_path = os.path.join(TEMP_DIR, f'{video_id}.mp3')
-    
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'outtmpl': os.path.join(TEMP_DIR, f'{video_id}.%(ext)s'),
-        'quiet': True,
-        'no_warnings': True,
-    }
     
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=True)
-            title = info.get('title', 'Unknown')
-            uploader = info.get('uploader', 'Unknown')
-            duration = info.get('duration', 0)
+        await query.answer()
         
-        await query.edit_message_text('📤 Отправляю трек...')
+        video_id = query.data.replace('download_', '')
+        video_url = f'https://www.youtube.com/watch?v={video_id}'
         
-        if os.path.exists(output_path):
-            with open(output_path, 'rb') as audio:
-                await context.bot.send_audio(
-                    chat_id=query.message.chat_id,
-                    audio=audio,
-                    title=title,
-                    performer=uploader,
-                    duration=duration,
-                    caption=f'🎵 {title}'
+        logger.info(f'Скачивание трека: {video_id}')
+        
+        await query.edit_message_text('⏬ *Скачиваю трек...*\n\n⏱ Это может занять 30-60 секунд', parse_mode='Markdown')
+        
+        output_path = os.path.join(TEMP_DIR, f'{video_id}.mp3')
+        
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'outtmpl': os.path.join(TEMP_DIR, f'{video_id}.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+        }
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(video_url, download=True)
+                title = info.get('title', 'Unknown')
+                uploader = info.get('uploader', 'Unknown')
+                duration = info.get('duration', 0)
+            
+            await query.edit_message_text('📤 *Отправляю трек...*', parse_mode='Markdown')
+            
+            if os.path.exists(output_path):
+                with open(output_path, 'rb') as audio:
+                    await context.bot.send_audio(
+                        chat_id=query.message.chat_id,
+                        audio=audio,
+                        title=title,
+                        performer=uploader,
+                        duration=duration,
+                        caption=f'🎵 *{title}*\n\n✅ Скачано успешно!',
+                        parse_mode='Markdown'
+                    )
+                
+                await query.edit_message_text('✅ *Трек успешно отправлен!*', parse_mode='Markdown')
+                
+                # Удаляем временный файл
+                try:
+                    os.remove(output_path)
+                    logger.info(f'Файл удалён: {output_path}')
+                except Exception as e:
+                    logger.error(f'Ошибка при удалении файла: {e}')
+            else:
+                await query.edit_message_text(
+                    '❌ *Ошибка*\n\n'
+                    'Файл не найден после скачивания.\n'
+                    'Попробуйте другой трек.',
+                    parse_mode='Markdown'
                 )
+        
+        except Exception as download_error:
+            logger.error(f'Ошибка при скачивании: {download_error}\n{traceback.format_exc()}')
+            await query.edit_message_text(
+                '❌ *Произошла ошибка при скачивании*\n\n'
+                '💡 Возможные причины:\n'
+                '• Видео недоступно\n'
+                '• Проблемы с сервером\n'
+                '• Слишком длинный трек\n\n'
+                '🔄 Попробуйте другой трек.',
+                parse_mode='Markdown'
+            )
             
-            await query.edit_message_text('✅ Трек успешно отправлен!')
-            
-            try:
-                os.remove(output_path)
-            except:
-                pass
-        else:
-            await query.edit_message_text('❌ Ошибка: файл не найден после скачивания.')
+            # Очистка при ошибке
+            if os.path.exists(output_path):
+                try:
+                    os.remove(output_path)
+                except:
+                    pass
     
     except Exception as e:
-        logger.error(f'Ошибка при скачивании: {e}')
-        await query.edit_message_text(
-            '❌ Произошла ошибка при скачивании.\n'
-            'Попробуйте другой трек или повторите позже.'
-        )
-        
-        if os.path.exists(output_path):
-            try:
-                os.remove(output_path)
-            except:
-                pass
+        logger.error(f'Критическая ошибка в download_and_send: {e}\n{traceback.format_exc()}')
+        try:
+            await query.answer('Произошла ошибка')
+        except:
+            pass
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик всех ошибок"""
+    logger.error(f'Обработка ошибки: {context.error}\n{traceback.format_exc()}')
+    
+    try:
+        if isinstance(update, Update) and update.effective_message:
+            await update.effective_message.reply_text(
+                '❌ Произошла ошибка. Бот продолжает работу.',
+                parse_mode='Markdown'
+            )
+    except:
+        pass
 
 def main():
     """Запуск бота"""
-    if BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
-        logger.error('Ошибка: не установлен BOT_TOKEN!')
-        logger.error('Установите переменную окружения BOT_TOKEN или измените её в коде')
-        return
+    try:
+        if BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
+            logger.error('❌ Ошибка: не установлен BOT_TOKEN!')
+            logger.error('Установите переменную окружения BOT_TOKEN или измените её в коде')
+            return
+        
+        logger.info('🚀 Инициализация бота...')
+        application = Application.builder().token(BOT_TOKEN).build()
+        
+        # Регистрируем обработчики команд
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("find", find_music))
+        
+        # Обработчик добавления бота в группу
+        from telegram import filters as telegram_filters
+        application.add_handler(MessageHandler(
+            telegram_filters.StatusUpdate.NEW_CHAT_MEMBERS,
+            new_chat_member
+        ))
+        
+        # Обработчик нажатий на кнопки
+        application.add_handler(CallbackQueryHandler(download_and_send))
+        
+        # Обработчик ошибок
+        application.add_error_handler(error_handler)
+        
+        # Запускаем бота
+        logger.info('✅ Бот успешно запущен!')
+        logger.info('🎵 Ожидаю команды /find...')
+        application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
     
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_music))
-    application.add_handler(CallbackQueryHandler(download_and_send))
-    
-    logger.info('Бот запущен!')
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except Exception as e:
+        logger.error(f'Критическая ошибка при запуске: {e}\n{traceback.format_exc()}')
+        raise
 
 if __name__ == '__main__':
     main()
-
-# ===== requirements.txt =====
-# python-telegram-bot==21.0.1
-# yt-dlp==2024.3.10
-
-# ===== Dockerfile =====
-# FROM python:3.11-slim
-# 
-# WORKDIR /app
-# 
-# # Установка системных зависимостей
-# RUN apt-get update && apt-get install -y \
-#     ffmpeg \
-#     && rm -rf /var/lib/apt/lists/*
-# 
-# # Копирование файлов
-# COPY requirements.txt .
-# RUN pip install --no-cache-dir -r requirements.txt
-# 
-# COPY bot.py .
-# 
-# # Создание директории для временных файлов
-# RUN mkdir -p temp_audio
-# 
-# CMD ["python", "bot.py"]
-
-# ===== docker-compose.yml =====
-# version: '3.8'
-# 
-# services:
-#   bot:
-#     build: .
-#     environment:
-#       - BOT_TOKEN=${BOT_TOKEN}
-#     volumes:
-#       - ./temp_audio:/app/temp_audio
-#     restart: unless-stopped
-
-# ===== .env.example =====
-# BOT_TOKEN=your_bot_token_here
-
-# ===== start.sh (для обычного хостинга) =====
-# #!/bin/bash
-# 
-# # Установка зависимостей
-# sudo apt-get update
-# sudo apt-get install -y python3 python3-pip ffmpeg
-# 
-# # Установка Python библиотек
-# pip3 install -r requirements.txt
-# 
-# # Запуск бота
-# export BOT_TOKEN="YOUR_BOT_TOKEN_HERE"
-# python3 bot.py
