@@ -1,0 +1,7 @@
+temp_audio/
+*.pyc
+__pycache__/
+.git/
+.env
+*.log
+.DS_Store
