@@ -3,7 +3,7 @@ import logging
 import os
 import traceback
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 import yt_dlp
 
 # Настройка логирования
@@ -320,9 +320,8 @@ def main():
         application.add_handler(CommandHandler("find", find_music))
         
         # Обработчик добавления бота в группу
-        from telegram import filters as telegram_filters
         application.add_handler(MessageHandler(
-            telegram_filters.StatusUpdate.NEW_CHAT_MEMBERS,
+            filters.StatusUpdate.NEW_CHAT_MEMBERS,
             new_chat_member
         ))
         
