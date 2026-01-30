@@ -2,20 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Установка системных зависимостей включая FFmpeg
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
-# Проверка установки FFmpeg
-RUN ffmpeg -version
+# Обновление pip
+RUN pip install --no-cache-dir --upgrade pip
 
 # Копирование файла зависимостей
 COPY requirements.txt .
 
 # Установка Python библиотек
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Копирование кода бота
 COPY bot.py .
