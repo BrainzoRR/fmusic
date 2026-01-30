@@ -220,9 +220,9 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.edit_message_text('⏬ *Скачиваю трек...*\n\n⏱ Это может занять 30-60 секунд', parse_mode='Markdown')
         
-        # Скачиваем аудио БЕЗ конвертации (быстрее и не требует FFmpeg)
+        # Скачиваем лучший доступный аудио формат
         ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio',
+            'format': 'bestaudio/best',
             'outtmpl': os.path.join(TEMP_DIR, f'{video_id}.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
