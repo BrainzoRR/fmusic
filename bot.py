@@ -6,7 +6,7 @@ import requests
 from io import BytesIO
 from PIL import Image
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, InlineQueryHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, InlineQueryHandler, ChosenInlineResultHandler, filters, ContextTypes
 import yt_dlp
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggvorbis import OggVorbis
@@ -212,39 +212,175 @@ def add_metadata_and_cover(file_path, title, artist, thumbnail_path=None):
         return False
 
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка inline запросов"""
+    """Обработка inline запросов - показывает результаты при вводе"""
     query = update.inline_query.query
     
-    if not query or len(query) < 3:
+    if not query or len(query) < 2:
+        # Показываем подсказку если ничего не введено
+        await update.inline_query.answer(
+            [],
+            switch_pm_text="Введите название песни для поиска",
+            switch_pm_parameter="start",
+            cache_time=0
+        )
         return
     
     try:
         logger.info(f'Inline поиск: {query}')
         results = search_youtube(query, max_results=5)
         
+        if not results:
+            await update.inline_query.answer(
+                [],
+                switch_pm_text=f"Ничего не найдено по запросу '{query[:20]}'",
+                switch_pm_parameter="start",
+                cache_time=10
+            )
+            return
+        
         inline_results = []
-        for i, track in enumerate(results):
+        for track in results:
             duration = format_duration(track['duration'])
+            
+            # Используем video_id как result_id
+            result_id = track['id']
             
             inline_results.append(
                 InlineQueryResultArticle(
-                    id=track['id'],
+                    id=result_id,
                     title=track['title'],
-                    description=f'Длительность: {duration}',
+                    description=f"⏱ {duration} | Нажмите чтобы скачать",
                     thumbnail_url=track.get('thumbnail'),
                     input_message_content=InputTextMessageContent(
-                        message_text=f"🎵 Скачиваю: *{track['title']}*\n\n⏱ Подождите...",
+                        message_text=f"⏬ *Скачиваю трек...*\n\n🎵 {track['title']}\n⏱ Подождите 10-60 секунд...",
                         parse_mode='Markdown'
-                    ),
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⏬ Скачать", callback_data=f"inline_dl_{track['id']}")
-                    ]])
+                    )
                 )
             )
         
-        await update.inline_query.answer(inline_results, cache_time=300)
+        await update.inline_query.answer(
+            inline_results, 
+            cache_time=60,
+            is_personal=True
+        )
+        
     except Exception as e:
         logger.error(f'Ошибка в inline_query: {e}\n{traceback.format_exc()}')
+        await update.inline_query.answer(
+            [],
+            switch_pm_text="Ошибка поиска, попробуйте позже",
+            switch_pm_parameter="start",
+            cache_time=0
+        )
+
+async def chosen_inline_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка выбора результата из inline режима"""
+    result = update.chosen_inline_result
+    video_id = result.result_id
+    
+    try:
+        logger.info(f'Выбран inline результат: {video_id}')
+        
+        # Получаем chat_id и message_id
+        inline_message_id = result.inline_message_id
+        
+        # Скачиваем трек
+        video_url = f'https://www.youtube.com/watch?v={video_id}'
+        
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': os.path.join(TEMP_DIR, f'{video_id}.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+            'writethumbnail': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                    'player_skip': ['webpage', 'configs']
+                }
+            },
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            }
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=True)
+            title = info.get('title', 'Unknown')
+            uploader = info.get('uploader', 'Unknown')
+            duration = info.get('duration', 0)
+            thumbnail_url = info.get('thumbnail')
+            downloaded_file = ydl.prepare_filename(info)
+        
+        # Скачиваем и добавляем обложку
+        thumbnail_path = None
+        if thumbnail_url:
+            thumbnail_path = download_thumbnail(thumbnail_url, video_id)
+        
+        if os.path.exists(downloaded_file):
+            add_metadata_and_cover(downloaded_file, title, uploader, thumbnail_path)
+        
+        # Обновляем сообщение
+        try:
+            await context.bot.edit_message_text(
+                inline_message_id=inline_message_id,
+                text=f'📤 *Отправляю трек...*\n\n🎵 {title}',
+                parse_mode='Markdown'
+            )
+        except:
+            pass
+        
+        # Отправляем аудио в тот же чат
+        if os.path.exists(downloaded_file):
+            thumb_data = None
+            if thumbnail_path and os.path.exists(thumbnail_path):
+                with open(thumbnail_path, 'rb') as thumb_file:
+                    thumb_data = thumb_file.read()
+            
+            # Получаем ID чата из update
+            # Для inline результатов нужно использовать from_user
+            chat_id = result.from_user.id
+            
+            with open(downloaded_file, 'rb') as audio:
+                sent_message = await context.bot.send_audio(
+                    chat_id=chat_id,
+                    audio=audio,
+                    thumbnail=thumb_data if thumb_data else None,
+                    title=title,
+                    performer=uploader,
+                    duration=duration,
+                    caption=f'🎵 *{title}*\n👤 {uploader}\n\n✅ Скачано через inline режим!',
+                    parse_mode='Markdown'
+                )
+            
+            # Обновляем inline сообщение
+            try:
+                await context.bot.edit_message_text(
+                    inline_message_id=inline_message_id,
+                    text=f'✅ *Трек отправлен!*\n\n🎵 {title}\n👤 {uploader}',
+                    parse_mode='Markdown'
+                )
+            except:
+                pass
+            
+            # Удаляем временные файлы
+            try:
+                os.remove(downloaded_file)
+                if thumbnail_path and os.path.exists(thumbnail_path):
+                    os.remove(thumbnail_path)
+            except:
+                pass
+                
+    except Exception as e:
+        logger.error(f'Ошибка в chosen_inline_result: {e}\n{traceback.format_exc()}')
+        try:
+            await context.bot.edit_message_text(
+                inline_message_id=inline_message_id,
+                text=f'❌ *Ошибка при скачивании*\n\nПопробуйте другой трек или используйте команду /find',
+                parse_mode='Markdown'
+            )
+        except:
+            pass
 
 async def find_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Поиск музыки по команде /find"""
@@ -476,6 +612,9 @@ def main():
         
         # Обработчик inline запросов
         application.add_handler(InlineQueryHandler(inline_query))
+        
+        # Обработчик выбора inline результата
+        application.add_handler(ChosenInlineResultHandler(chosen_inline_result))
         
         # Обработчик добавления бота в группу
         application.add_handler(MessageHandler(
