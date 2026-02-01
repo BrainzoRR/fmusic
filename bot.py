@@ -5,7 +5,7 @@ import traceback
 import requests
 from io import BytesIO
 from PIL import Image
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent, InlineQueryResultsButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InlineQueryResultCachedAudio, InputTextMessageContent, InlineQueryResultsButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, InlineQueryHandler, filters, ContextTypes
 import yt_dlp
 from mutagen.mp4 import MP4, MP4Cover
@@ -27,6 +27,9 @@ TEMP_DIR = 'temp_audio'
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
 
+# Кэш скачанных треков: video_id -> file_id
+TRACK_CACHE = {}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приветственное сообщение"""
     try:
@@ -38,7 +41,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             '/find <название песни> - Найти и скачать трек\n\n'
             '2️⃣ *Inline режим (в любом чате):*\n'
             'Просто напишите `@' + (await context.bot.get_me()).username + ' название песни`\n'
-            'Пример: `@' + (await context.bot.get_me()).username + ' kijin на скейте`\n\n'
+            'Пример: `@' + (await context.bot.get_me()).username + ' kijin на скейте`\n'
+            '✨ Скачанные треки сохраняются и отправляются мгновенно!\n\n'
             '💡 *Другие команды:*\n'
             '/help - Помощь и инструкция\n'
             '/start - Показать это сообщение\n\n'
@@ -64,7 +68,8 @@ async def new_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     '1️⃣ *Команда:*\n'
                     '`/find <название>` - Найти трек\n\n'
                     '2️⃣ *Inline режим:*\n'
-                    f'`@{bot_username} название песни`\n\n'
+                    f'`@{bot_username} название песни`\n'
+                    '✨ Скачанные треки отправляются мгновенно!\n\n'
                     '❓ `/help` - Подробная инструкция\n\n'
                     '🎯 *Пример:*\n'
                     '`/find kijin на скейте`\n'
@@ -89,8 +94,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             '5. Получите трек с обложкой!\n\n'
             '🎯 *Способ 2: Inline режим*\n'
             f'1. В любом чате напишите `@{bot_username} название`\n'
-            '2. Выберите трек из списка\n'
-            '3. Трек появится в чате с пометкой via @' + bot_username + '\n\n'
+            f'2. Если трек уже скачан - он отправится сразу в чат\n'
+            f'3. Если нет - нажмите кнопку "Скачать"\n'
+            '4. После первого скачивания трек доступен мгновенно!\n\n'
             '📋 *Команды:*\n'
             '`/find <название>` - Найти трек\n'
             '`/help` - Эта справка\n'
@@ -219,7 +225,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.inline_query.answer(
             [],
             button=InlineQueryResultsButton(
-                text="Введите название песни для поиска",
+                text="📖 Как использовать бота",
                 start_parameter="start"
             ),
             cache_time=0
@@ -246,28 +252,39 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
             duration = format_duration(track['duration'])
             result_id = track['id']
             
-            # Добавляем кнопку "Скачать" к каждому результату
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton("⏬ Скачать трек", callback_data=f"inline_dl_{result_id}")
-            ]])
-            
-            inline_results.append(
-                InlineQueryResultArticle(
-                    id=result_id,
-                    title=track['title'],
-                    description=f"⏱ {duration} | Нажмите чтобы отправить в чат",
-                    thumbnail_url=track.get('thumbnail'),
-                    input_message_content=InputTextMessageContent(
-                        message_text=f"🎵 *{track['title']}*\n⏱ {duration}\n\n👇 Нажмите кнопку ниже чтобы скачать",
-                        parse_mode='Markdown'
-                    ),
-                    reply_markup=keyboard
+            # Проверяем есть ли трек в кэше
+            if result_id in TRACK_CACHE:
+                # Трек уже скачан - отправляем напрямую в чат!
+                inline_results.append(
+                    InlineQueryResultCachedAudio(
+                        id=result_id,
+                        audio_file_id=TRACK_CACHE[result_id],
+                        caption=f"🎵 {track['title']}\n\n✨ via @{(await context.bot.get_me()).username}"
+                    )
                 )
-            )
+            else:
+                # Трек не скачан - показываем с кнопкой
+                keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⏬ Скачать трек", callback_data=f"inline_dl_{result_id}")
+                ]])
+                
+                inline_results.append(
+                    InlineQueryResultArticle(
+                        id=result_id,
+                        title=f"🎵 {track['title']}",
+                        description=f"⏱ {duration} | Первый раз - нажмите скачать",
+                        thumbnail_url=track.get('thumbnail'),
+                        input_message_content=InputTextMessageContent(
+                            message_text=f"🎵 *{track['title']}*\n⏱ {duration}\n\n👇 Нажмите кнопку чтобы скачать трек\n💡 После скачивания трек будет доступен для быстрой отправки через inline!",
+                            parse_mode='Markdown'
+                        ),
+                        reply_markup=keyboard
+                    )
+                )
         
         await update.inline_query.answer(
             inline_results, 
-            cache_time=60,
+            cache_time=300,
             is_personal=True
         )
         
