@@ -178,8 +178,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     title=title,
                     performer=uploader,
                     duration=duration,
-                    caption=f'🎵 *{title}*\n👤 {uploader}',
-                    parse_mode='Markdown'
+                    caption=f'🎵 *{title}*\n👤 {uploader}'
                 )
                 
                 # Сохраняем в кэш! В следующий раз поиск через @ выдаст файл сразу.
@@ -269,3 +268,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
