@@ -25,15 +25,15 @@ TEMP_DIR = 'temp_audio'
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
 
-# === КЭШ (Чтобы работало как @song) ===
+# КЭШ: video_id -> file_id
 TRACK_CACHE = {}
 
-# === ТВОИ ОРИГИНАЛЬНЫЕ НАСТРОЙКИ (Восстановлены) ===
+# === НАСТРОЙКИ ЗАГРУЗЧИКА ===
 def get_ydl_opts(is_download=False, filepath=None):
     opts = {
         'quiet': True,
         'no_warnings': True,
-        # 'extract_flat': True, # Убрал, так как мешает при скачивании
+        # ВАЖНО: Эти настройки спасают от ошибки 403
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'web'],
@@ -72,7 +72,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # === ПОИСК ===
 def search_youtube(query, max_results=10):
     try:
-        # Используем твои настройки для поиска
         with yt_dlp.YoutubeDL(get_ydl_opts(is_download=False)) as ydl:
             res = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
             return res.get('entries', [])
@@ -120,7 +119,7 @@ def add_metadata_and_cover(file_path, title, artist, thumbnail_path=None):
             audio.save()
     except: pass
 
-# === ЛОГИКА СКАЧИВАНИЯ И ОТПРАВКИ ===
+# === СКАЧИВАНИЕ И ОТПРАВКА ===
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -138,7 +137,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     filepath_tmpl = os.path.join(TEMP_DIR, f'{video_id}.%(ext)s')
     
     try:
-        # ИСПОЛЬЗУЕМ ТВОИ ОРИГИНАЛЬНЫЕ НАСТРОЙКИ
+        # Скачиваем с рабочими настройками
         opts = get_ydl_opts(is_download=True, filepath=filepath_tmpl)
         
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -154,8 +153,21 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if os.path.exists(final_filename):
             add_metadata_and_cover(final_filename, title, uploader, thumb_path)
             
-            chat_id = query.message.chat_id
-            
+            # === ВОТ ЗДЕСЬ БЫЛА ОШИБКА, ТЕПЕРЬ ИСПРАВЛЕНО ===
+            if query.message:
+                # Если нажали кнопку в обычном чате (/find)
+                chat_id = query.message.chat_id
+                success_text = '✅ *Отправлено!*'
+            else:
+                # Если нажали кнопку в Inline режиме (@bot)
+                # У нас нет ID чата, поэтому отправляем в ЛИЧКУ тому, кто нажал
+                chat_id = query.from_user.id
+                success_text = '✅ *Отправлено в личку!*'
+                try:
+                    await query.edit_message_text('📩 *Отправил трек тебе в ЛС!*', parse_mode='Markdown')
+                except: pass
+
+            # Отправка файла
             with open(final_filename, 'rb') as audio:
                 t_data = open(thumb_path, 'rb').read() if thumb_path else None
                 
@@ -170,37 +182,38 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode='Markdown'
                 )
                 
-                # Сохраняем в кэш
+                # Сохраняем в кэш! В следующий раз поиск через @ выдаст файл сразу.
                 if msg.audio:
                     TRACK_CACHE[video_id] = msg.audio.file_id
 
             try:
-                await query.edit_message_text('✅ *Готово!*', parse_mode='Markdown')
+                if query.message:
+                    await query.edit_message_text(success_text, parse_mode='Markdown')
             except: pass
             
-            # Удаляем
+            # Удаляем временные файлы
             os.remove(final_filename)
             if thumb_path: os.remove(thumb_path)
             
     except Exception as e:
         logger.error(f"Download Error: {e}\n{traceback.format_exc()}")
         try:
-            await query.edit_message_text('❌ Ошибка. Попробуйте другой трек.', parse_mode='Markdown')
+            await query.edit_message_text('❌ Ошибка. Если вы в Inline режиме, убедитесь, что вы запустили бота в личке.', parse_mode='Markdown')
         except: pass
 
-# === INLINE (Поиск через @) ===
+# === INLINE ===
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query
     if not query: return
     
     results = search_youtube(query)
     articles = []
-    bot_name = (await context.bot.get_me()).username
     
     for r in results:
         vid = r['id']
         title = r['title']
         
+        # Если есть в кэше — кидаем как музыку (можно сразу в любой чат)
         if vid in TRACK_CACHE:
             articles.append(InlineQueryResultCachedAudio(
                 id=vid,
@@ -208,6 +221,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=f"🎵 {title}"
             ))
         else:
+            # Если нет — кнопка скачать
             articles.append(InlineQueryResultArticle(
                 id=vid,
                 title=title,
@@ -250,7 +264,7 @@ def main():
     app.add_handler(CallbackQueryHandler(download_and_send))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_chat_member))
     
-    print("Бот запущен (Original Config Restored)")
+    print("Бот запущен!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
