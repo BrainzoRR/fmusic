@@ -5,7 +5,7 @@ import traceback
 import requests
 from io import BytesIO
 from PIL import Image
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent, InlineQueryResultsButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, InlineQueryHandler, ChosenInlineResultHandler, filters, ContextTypes
 import yt_dlp
 from mutagen.mp4 import MP4, MP4Cover
@@ -219,8 +219,10 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Показываем подсказку если ничего не введено
         await update.inline_query.answer(
             [],
-            switch_pm_text="Введите название песни для поиска",
-            switch_pm_parameter="start",
+            button=InlineQueryResultsButton(
+                text="Введите название песни для поиска",
+                start_parameter="start"
+            ),
             cache_time=0
         )
         return
@@ -232,8 +234,10 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not results:
             await update.inline_query.answer(
                 [],
-                switch_pm_text=f"Ничего не найдено по запросу '{query[:20]}'",
-                switch_pm_parameter="start",
+                button=InlineQueryResultsButton(
+                    text=f"Ничего не найдено",
+                    start_parameter="start"
+                ),
                 cache_time=10
             )
             return
@@ -266,12 +270,17 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         logger.error(f'Ошибка в inline_query: {e}\n{traceback.format_exc()}')
-        await update.inline_query.answer(
-            [],
-            switch_pm_text="Ошибка поиска, попробуйте позже",
-            switch_pm_parameter="start",
-            cache_time=0
-        )
+        try:
+            await update.inline_query.answer(
+                [],
+                button=InlineQueryResultsButton(
+                    text="Ошибка поиска, попробуйте позже",
+                    start_parameter="start"
+                ),
+                cache_time=0
+            )
+        except:
+            await update.inline_query.answer([], cache_time=0)
 
 async def chosen_inline_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора результата из inline режима"""
