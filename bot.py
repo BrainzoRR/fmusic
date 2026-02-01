@@ -6,7 +6,7 @@ import requests
 from io import BytesIO
 from PIL import Image
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent, InlineQueryResultsButton
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, InlineQueryHandler, ChosenInlineResultHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, InlineQueryHandler, filters, ContextTypes
 import yt_dlp
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggvorbis import OggVorbis
@@ -216,7 +216,6 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query
     
     if not query or len(query) < 2:
-        # Показываем подсказку если ничего не введено
         await update.inline_query.answer(
             [],
             button=InlineQueryResultsButton(
@@ -245,20 +244,24 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
         inline_results = []
         for track in results:
             duration = format_duration(track['duration'])
-            
-            # Используем video_id как result_id
             result_id = track['id']
+            
+            # Добавляем кнопку "Скачать" к каждому результату
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("⏬ Скачать трек", callback_data=f"inline_dl_{result_id}")
+            ]])
             
             inline_results.append(
                 InlineQueryResultArticle(
                     id=result_id,
                     title=track['title'],
-                    description=f"⏱ {duration} | Нажмите чтобы скачать",
+                    description=f"⏱ {duration} | Нажмите чтобы отправить в чат",
                     thumbnail_url=track.get('thumbnail'),
                     input_message_content=InputTextMessageContent(
-                        message_text=f"⏬ *Скачиваю трек...*\n\n🎵 {track['title']}\n⏱ Подождите 10-60 секунд...",
+                        message_text=f"🎵 *{track['title']}*\n⏱ {duration}\n\n👇 Нажмите кнопку ниже чтобы скачать",
                         parse_mode='Markdown'
-                    )
+                    ),
+                    reply_markup=keyboard
                 )
             )
         
@@ -621,9 +624,6 @@ def main():
         
         # Обработчик inline запросов
         application.add_handler(InlineQueryHandler(inline_query))
-        
-        # Обработчик выбора inline результата
-        application.add_handler(ChosenInlineResultHandler(chosen_inline_result))
         
         # Обработчик добавления бота в группу
         application.add_handler(MessageHandler(
