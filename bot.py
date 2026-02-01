@@ -2,9 +2,15 @@
 import logging
 import os
 import traceback
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+import requests
+from io import BytesIO
+from PIL import Image
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, InlineQueryHandler, filters, ContextTypes
 import yt_dlp
+from mutagen.mp4 import MP4, MP4Cover
+from mutagen.oggvorbis import OggVorbis
+from mutagen.flac import FLAC, Picture
 
 # Настройка логирования
 logging.basicConfig(
@@ -27,14 +33,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_text = (
             '🎵 *Привет! Я Music Bot!*\n\n'
             '✨ Я помогу вам находить и скачивать музыку с YouTube.\n\n'
-            '📋 *Доступные команды:*\n'
-            '/find <название песни> - Найти и скачать трек\n'
+            '📋 *Два способа использования:*\n\n'
+            '1️⃣ *В чате:*\n'
+            '/find <название песни> - Найти и скачать трек\n\n'
+            '2️⃣ *Inline режим (в любом чате):*\n'
+            'Просто напишите `@' + (await context.bot.get_me()).username + ' название песни`\n'
+            'Пример: `@' + (await context.bot.get_me()).username + ' kijin на скейте`\n\n'
+            '💡 *Другие команды:*\n'
             '/help - Помощь и инструкция\n'
             '/start - Показать это сообщение\n\n'
             '🎯 *Пример использования:*\n'
             '`/find kijin на скейте`\n'
             '`/find coldplay yellow`\n\n'
-            '💡 Просто напишите команду /find и название песни!'
+            '✨ С обложками и правильными метаданными!'
         )
         await update.message.reply_text(welcome_text, parse_mode='Markdown')
     except Exception as e:
@@ -45,15 +56,20 @@ async def new_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         for member in update.message.new_chat_members:
             if member.id == context.bot.id:
+                bot_username = (await context.bot.get_me()).username
                 welcome_text = (
                     '👋 *Привет всем! Спасибо, что добавили меня в чат!*\n\n'
                     '🎵 Я Music Bot - помогу находить и скачивать музыку.\n\n'
-                    '📋 *Команды для работы со мной:*\n'
-                    '🔍 `/find <название>` - Найти трек\n'
+                    '📋 *Два способа использования:*\n\n'
+                    '1️⃣ *Команда:*\n'
+                    '`/find <название>` - Найти трек\n\n'
+                    '2️⃣ *Inline режим:*\n'
+                    f'`@{bot_username} название песни`\n\n'
                     '❓ `/help` - Подробная инструкция\n\n'
                     '🎯 *Пример:*\n'
-                    '`/find kijin на скейте`\n\n'
-                    '✅ Готов к работе! Пишите /find и название песни!'
+                    '`/find kijin на скейте`\n'
+                    f'`@{bot_username} imagine dragons`\n\n'
+                    '✅ Готов к работе!'
                 )
                 await update.message.reply_text(welcome_text, parse_mode='Markdown')
     except Exception as e:
@@ -62,25 +78,31 @@ async def new_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Справка по командам"""
     try:
+        bot_username = (await context.bot.get_me()).username
         help_text = (
             '📖 *Инструкция по использованию Music Bot*\n\n'
-            '🔍 *Как искать музыку:*\n'
+            '🔍 *Способ 1: Команда /find*\n'
             '1. Напишите `/find` и название песни\n'
             '2. Я найду несколько вариантов\n'
             '3. Выберите нужный трек кнопкой\n'
             '4. Дождитесь скачивания\n'
-            '5. Получите полную песню в MP3!\n\n'
+            '5. Получите трек с обложкой!\n\n'
+            '🎯 *Способ 2: Inline режим*\n'
+            f'1. В любом чате напишите `@{bot_username} название`\n'
+            '2. Выберите трек из списка\n'
+            '3. Трек появится в чате с пометкой via @' + bot_username + '\n\n'
             '📋 *Команды:*\n'
             '`/find <название>` - Найти трек\n'
             '`/help` - Эта справка\n'
             '`/start` - Приветствие\n\n'
-            '💡 *Примеры запросов:*\n'
+            '💡 *Примеры:*\n'
             '`/find kijin на скейте`\n'
-            '`/find imagine dragons bones`\n'
+            f'`@{bot_username} imagine dragons bones`\n'
             '`/find моя оборона`\n\n'
             '⚠️ *Обратите внимание:*\n'
             '• Скачивание занимает 10-60 секунд\n'
             '• Работаю в личке и группах\n'
+            '• Треки с обложками и метаданными\n'
             '• Показываю 5 лучших результатов\n\n'
             '❤️ Приятного прослушивания!'
         )
@@ -115,7 +137,8 @@ def search_youtube(query, max_results=5):
                             'id': entry.get('id'),
                             'title': entry.get('title'),
                             'duration': entry.get('duration', 0),
-                            'url': f"https://www.youtube.com/watch?v={entry.get('id')}"
+                            'url': f"https://www.youtube.com/watch?v={entry.get('id')}",
+                            'thumbnail': entry.get('thumbnail')
                         })
                 return results
     except Exception as e:
@@ -127,15 +150,105 @@ def format_duration(seconds):
     """Форматирование длительности"""
     if not seconds:
         return '?:??'
-    seconds = int(seconds)  # Преобразуем в целое число
+    seconds = int(seconds)
     minutes = seconds // 60
     secs = seconds % 60
     return f'{minutes}:{secs:02d}'
 
+def download_thumbnail(url, video_id):
+    """Скачивание обложки"""
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            img_path = os.path.join(TEMP_DIR, f'{video_id}_thumb.jpg')
+            
+            # Открываем и конвертируем в RGB (убираем альфа-канал если есть)
+            img = Image.open(BytesIO(response.content))
+            if img.mode in ('RGBA', 'LA', 'P'):
+                img = img.convert('RGB')
+            
+            # Сохраняем
+            img.save(img_path, 'JPEG', quality=90)
+            return img_path
+    except Exception as e:
+        logger.error(f'Ошибка скачивания обложки: {e}')
+    return None
+
+def add_metadata_and_cover(file_path, title, artist, thumbnail_path=None):
+    """Добавление метаданных и обложки к аудио файлу"""
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+        
+        if ext == '.m4a':
+            audio = MP4(file_path)
+            audio['\xa9nam'] = title  # Название
+            audio['\xa9ART'] = artist  # Исполнитель
+            
+            if thumbnail_path and os.path.exists(thumbnail_path):
+                with open(thumbnail_path, 'rb') as f:
+                    audio['covr'] = [MP4Cover(f.read(), imageformat=MP4Cover.FORMAT_JPEG)]
+            
+            audio.save()
+            
+        elif ext == '.webm' or ext == '.opus' or ext == '.ogg':
+            audio = OggVorbis(file_path)
+            audio['title'] = title
+            audio['artist'] = artist
+            
+            if thumbnail_path and os.path.exists(thumbnail_path):
+                pic = Picture()
+                pic.type = 3  # Cover front
+                with open(thumbnail_path, 'rb') as f:
+                    pic.data = f.read()
+                pic.mime = 'image/jpeg'
+                audio['metadata_block_picture'] = [pic]
+            
+            audio.save()
+        
+        logger.info(f'Метаданные добавлены для {file_path}')
+        return True
+    except Exception as e:
+        logger.error(f'Ошибка добавления метаданных: {e}\n{traceback.format_exc()}')
+        return False
+
+async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка inline запросов"""
+    query = update.inline_query.query
+    
+    if not query or len(query) < 3:
+        return
+    
+    try:
+        logger.info(f'Inline поиск: {query}')
+        results = search_youtube(query, max_results=5)
+        
+        inline_results = []
+        for i, track in enumerate(results):
+            duration = format_duration(track['duration'])
+            
+            inline_results.append(
+                InlineQueryResultArticle(
+                    id=track['id'],
+                    title=track['title'],
+                    description=f'Длительность: {duration}',
+                    thumbnail_url=track.get('thumbnail'),
+                    input_message_content=InputTextMessageContent(
+                        message_text=f"🎵 Скачиваю: *{track['title']}*\n\n⏱ Подождите...",
+                        parse_mode='Markdown'
+                    ),
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⏬ Скачать", callback_data=f"inline_dl_{track['id']}")
+                    ]])
+                )
+            )
+        
+        await update.inline_query.answer(inline_results, cache_time=300)
+    except Exception as e:
+        logger.error(f'Ошибка в inline_query: {e}\n{traceback.format_exc()}')
+
 async def find_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Поиск музыки по команде /find"""
     try:
-        # Безопасная проверка аргументов
         args = context.args if context.args is not None else []
         
         if not args or len(args) == 0:
@@ -147,7 +260,6 @@ async def find_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Собираем запрос из аргументов
         query = ' '.join(args)
         logger.info(f'Поиск музыки: {query}')
         
@@ -157,11 +269,9 @@ async def find_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
             results = search_youtube(query)
             
             if results and len(results) > 0:
-                # Создаём кнопки для выбора
                 keyboard = []
                 for i, track in enumerate(results):
                     duration = format_duration(track['duration'])
-                    # Сокращаем название для кнопки
                     title = track['title']
                     if len(title) > 60:
                         title = title[:57] + '...'
@@ -213,12 +323,18 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await query.answer()
         
-        video_id = query.data.replace('download_', '')
+        # Проверяем тип callback (обычный или inline)
+        is_inline = query.data.startswith('inline_dl_')
+        video_id = query.data.replace('inline_dl_', '').replace('download_', '')
         video_url = f'https://www.youtube.com/watch?v={video_id}'
         
-        logger.info(f'Скачивание трека: {video_id}')
+        logger.info(f'Скачивание трека: {video_id} (inline: {is_inline})')
         
-        await query.edit_message_text('⏬ *Скачиваю трек...*\n\n⏱ Это может занять 30-60 секунд', parse_mode='Markdown')
+        if is_inline:
+            # Для inline режима редактируем сообщение
+            await query.edit_message_text('⏬ *Скачиваю трек...*\n\n⏱ Это может занять 30-60 секунд', parse_mode='Markdown')
+        else:
+            await query.edit_message_text('⏬ *Скачиваю трек...*\n\n⏱ Это может занять 30-60 секунд', parse_mode='Markdown')
         
         # Скачиваем лучший доступный аудио формат
         ydl_opts = {
@@ -226,6 +342,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'outtmpl': os.path.join(TEMP_DIR, f'{video_id}.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
+            'writethumbnail': True,  # Скачиваем обложку
             'extractor_args': {
                 'youtube': {
                     'player_client': ['android', 'web'],
@@ -246,33 +363,53 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 title = info.get('title', 'Unknown')
                 uploader = info.get('uploader', 'Unknown')
                 duration = info.get('duration', 0)
+                thumbnail_url = info.get('thumbnail')
                 
-                # Получаем реальное имя скачанного файла
                 downloaded_file = ydl.prepare_filename(info)
+            
+            # Скачиваем обложку отдельно если нужно
+            thumbnail_path = None
+            if thumbnail_url:
+                thumbnail_path = download_thumbnail(thumbnail_url, video_id)
+            
+            # Добавляем метаданные и обложку
+            if os.path.exists(downloaded_file):
+                add_metadata_and_cover(downloaded_file, title, uploader, thumbnail_path)
             
             await query.edit_message_text('📤 *Отправляю трек...*', parse_mode='Markdown')
             
-            # Проверяем что файл существует
             if os.path.exists(downloaded_file):
+                # Читаем обложку для отправки
+                thumb_data = None
+                if thumbnail_path and os.path.exists(thumbnail_path):
+                    with open(thumbnail_path, 'rb') as thumb_file:
+                        thumb_data = thumb_file.read()
+                
                 with open(downloaded_file, 'rb') as audio:
                     await context.bot.send_audio(
                         chat_id=query.message.chat_id,
                         audio=audio,
+                        thumbnail=thumb_data if thumb_data else None,
                         title=title,
                         performer=uploader,
                         duration=duration,
-                        caption=f'🎵 *{title}*\n\n✅ Скачано успешно!',
+                        caption=f'🎵 *{title}*\n👤 {uploader}\n\n✅ Скачано успешно!',
                         parse_mode='Markdown'
                     )
                 
-                await query.edit_message_text('✅ *Трек успешно отправлен!*', parse_mode='Markdown')
+                if is_inline:
+                    await query.edit_message_text('✅ *Трек отправлен!*', parse_mode='Markdown')
+                else:
+                    await query.edit_message_text('✅ *Трек успешно отправлен!*', parse_mode='Markdown')
                 
-                # Удаляем временный файл
+                # Удаляем временные файлы
                 try:
                     os.remove(downloaded_file)
-                    logger.info(f'Файл удалён: {downloaded_file}')
+                    if thumbnail_path and os.path.exists(thumbnail_path):
+                        os.remove(thumbnail_path)
+                    logger.info(f'Файлы удалены: {downloaded_file}')
                 except Exception as e:
-                    logger.error(f'Ошибка при удалении файла: {e}')
+                    logger.error(f'Ошибка при удалении файлов: {e}')
             else:
                 await query.edit_message_text(
                     '❌ *Ошибка*\n\n'
@@ -293,7 +430,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
             
-            # Очистка при ошибке - удаляем все файлы с этим video_id
+            # Очистка при ошибке
             try:
                 for file in os.listdir(TEMP_DIR):
                     if file.startswith(video_id):
@@ -337,6 +474,9 @@ def main():
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("find", find_music))
         
+        # Обработчик inline запросов
+        application.add_handler(InlineQueryHandler(inline_query))
+        
         # Обработчик добавления бота в группу
         application.add_handler(MessageHandler(
             filters.StatusUpdate.NEW_CHAT_MEMBERS,
@@ -351,7 +491,7 @@ def main():
         
         # Запускаем бота
         logger.info('✅ Бот успешно запущен!')
-        logger.info('🎵 Ожидаю команды /find...')
+        logger.info('🎵 Ожидаю команды /find и inline запросы...')
         application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
     
     except Exception as e:
