@@ -1,6 +1,7 @@
 # bot.py - Улучшенный Telegram Music Bot
 import logging
 import os
+import imageio_ffmpeg
 import re
 import traceback
 import requests
@@ -96,11 +97,15 @@ def parse_artist_title(full_title, uploader):
 
 # === НАСТРОЙКИ ЗАГРУЗЧИКА ===
 def get_ydl_opts(is_download=False, filepath=None, quality='best'):
+    """Настройки yt-dlp с поддержкой выбора качества"""
+    
+    # Получаем путь к ffmpeg из библиотеки
+    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+
     opts = {
         'quiet': True,
         'no_warnings': True,
-        # ЯВНО УКАЗЫВАЕМ ПУТЬ (в Docker образах python:slim он обычно тут)
-        'ffmpeg_location': '/usr/bin/ffmpeg', 
+        'ffmpeg_location': ffmpeg_path,  # <--- ЯВНО УКАЗЫВАЕМ ПУТЬ
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'web'],
