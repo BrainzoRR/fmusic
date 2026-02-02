@@ -1,9 +1,0 @@
-temp_audio/
-*.pyc
-__pycache__/
-.git/
-.env
-track_cache.json
-*.log
-README.md
-.gitignore
