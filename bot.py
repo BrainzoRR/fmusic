@@ -369,11 +369,21 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     filepath_tmpl = os.path.join(TEMP_DIR, f'{video_id}.%(ext)s')
     
     try:
-        opts = get_ydl_opts(is_download=True, filepath=filepath_tmpl, quality=quality)
+        # Не забываем про imageio_ffmpeg, если ты его добавил
+        import imageio_ffmpeg
+        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
         
+        # Обновляем опции, добавляем путь к ffmpeg
+        opts = get_ydl_opts(is_download=True, filepath=filepath_tmpl, quality=quality)
+        opts['ffmpeg_location'] = ffmpeg_path  # Явно указываем путь
+
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(video_url, download=True)
-            final_filename = ydl.prepare_filename(info).replace('.webm', '.m4a').replace('.opus', '.m4a')
+            
+            # --- ИСПРАВЛЕНИЕ ТУТ ---
+            # Мы жестко задаем имя файла, так как точно знаем, что конвертируем в m4a
+            final_filename = os.path.join(TEMP_DIR, f"{video_id}.m4a")
+            # -----------------------
             
             full_title = info.get('title', 'Unknown')
             uploader = info.get('uploader', 'Unknown Artist')
@@ -385,6 +395,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         thumb_path = download_thumbnail(thumb_url, video_id) if thumb_url else None
         
+        # Добавим лог, чтобы видеть, нашел ли бот файл
         if os.path.exists(final_filename):
             add_metadata_and_cover(final_filename, title, artist, thumb_path)
             
@@ -436,6 +447,10 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 os.remove(final_filename)
             if thumb_path and os.path.exists(thumb_path):
                 os.remove(thumb_path)
+        else:
+            # Если файл не найден - сообщаем об ошибке
+            logger.error(f"File not found: {final_filename}")
+            await query.edit_message_text('❌ Ошибка: файл скачался, но потерялся.', parse_mode='HTML')
             
     except Exception as e:
         logger.error(f"Download Error: {e}\n{traceback.format_exc()}")
