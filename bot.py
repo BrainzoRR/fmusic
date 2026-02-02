@@ -96,10 +96,11 @@ def parse_artist_title(full_title, uploader):
 
 # === НАСТРОЙКИ ЗАГРУЗЧИКА ===
 def get_ydl_opts(is_download=False, filepath=None, quality='best'):
-    """Настройки yt-dlp с поддержкой выбора качества"""
     opts = {
         'quiet': True,
         'no_warnings': True,
+        # ЯВНО УКАЗЫВАЕМ ПУТЬ (в Docker образах python:slim он обычно тут)
+        'ffmpeg_location': '/usr/bin/ffmpeg', 
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'web'],
