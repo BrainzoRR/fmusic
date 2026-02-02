@@ -172,7 +172,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_html(welcome_text, reply_markup=reply_markup)
+    # Проверяем, это обычное сообщение или callback
+    if update.message:
+        await update.message.reply_html(welcome_text, reply_markup=reply_markup)
+    elif update.callback_query:
+        await update.callback_query.edit_message_text(welcome_text, parse_mode='HTML', reply_markup=reply_markup)
 
 # === ПОМОЩЬ ===
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -210,7 +214,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
         await update.message.reply_html(help_text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
-        await update.callback_query.edit_message_text(help_text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        try:
+            await update.callback_query.edit_message_text(help_text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception:
+            # Если сообщение не изменилось - ничего страшного
+            pass
 
 # === НАСТРОЙКИ ===
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -244,7 +252,11 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
         await update.message.reply_html(text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
-        await update.callback_query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        try:
+            await update.callback_query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception:
+            # Если сообщение не изменилось - ничего страшного
+            pass
 
 # === СТАТИСТИКА ===
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -270,7 +282,11 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
         await update.message.reply_html(text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
-        await update.callback_query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        try:
+            await update.callback_query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception:
+            # Если сообщение не изменилось - ничего страшного
+            pass
 
 # === ПОИСК ===
 def search_youtube(query, max_results=10):
@@ -317,7 +333,6 @@ def add_metadata_and_cover(file_path, title, artist, thumbnail_path=None):
 # === СКАЧИВАНИЕ И ОТПРАВКА ===
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     
     data = query.data
     if not data.startswith('dl_'): 
@@ -504,6 +519,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
     
+    # Отвечаем на callback чтобы убрать "часики"
+    await query.answer()
+    
     if data.startswith('dl_'):
         await download_and_send(update, context)
     elif data == 'settings':
@@ -515,12 +533,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith('quality_'):
         quality = data.replace('quality_', '')
         USER_SETTINGS[query.from_user.id] = quality
-        await query.answer(f"✅ Качество изменено на {quality.upper()}!")
+        await query.answer(f"✅ Качество изменено на {quality.upper()}!", show_alert=True)
         await settings_command(update, context)
     elif data == 'back_start':
         await start(update, context)
     elif data == 'cancel':
-        await query.edit_message_text("❌ Отменено")
+        try:
+            await query.edit_message_text("❌ Отменено")
+        except:
+            pass
 
 # === НОВЫЙ УЧАСТНИК ===
 async def new_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
