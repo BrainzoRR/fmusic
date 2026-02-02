@@ -3,5 +3,7 @@ temp_audio/
 __pycache__/
 .git/
 .env
+track_cache.json
 *.log
-.DS_Store
+README.md
+.gitignore
