@@ -2,20 +2,22 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Обновление pip
-RUN pip install --no-cache-dir --upgrade pip
+# Установка системных зависимостей
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
-# Копирование файла зависимостей
+# Копируем зависимости
 COPY requirements.txt .
 
-# Установка Python библиотек
+# Устанавливаем Python пакеты
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копирование кода бота
+# Копируем код бота
 COPY bot.py .
 
-# Создание директории для временных файлов
-RUN mkdir -p temp_audio && chmod 777 temp_audio
+# Создаем директорию для временных файлов
+RUN mkdir -p temp_audio
 
-# Запуск бота
-CMD ["python", "-u", "bot.py"]
+# Запуск
+CMD ["python", "bot.py"]

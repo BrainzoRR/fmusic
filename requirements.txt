@@ -1,7 +1,5 @@
 python-telegram-bot==21.0.1
-
 yt-dlp==2025.11.12
-
-mutagen
-Pillow
-requests
+mutagen==1.47.0
+Pillow==10.2.0
+requests==2.31.0
