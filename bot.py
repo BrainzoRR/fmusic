@@ -217,9 +217,11 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     current = USER_SETTINGS.get(user_id, 'high')
     
+    quality_names = {"high": "🔥 High", "medium": "⚡ Medium", "low": "💾 Low"}
+    
     text = f'''⚙️ <b>Настройки качества аудио</b>
 
-Текущее: <b>{{"high": "🔥 High", "medium": "⚡ Medium", "low": "💾 Low"}.get(current)}</b>
+Текущее: <b>{quality_names.get(current)}</b>
 
 Выберите качество:'''
     
@@ -252,11 +254,14 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     downloads = user_data.get('downloads', 0)
     searches = user_data.get('searches', 0)
     
+    quality_names = {"high": "🔥 High", "medium": "⚡ Medium", "low": "💾 Low"}
+    current_quality = quality_names.get(USER_SETTINGS.get(user_id, 'high'))
+    
     text = f'''📊 <b>Твоя статистика</b>
 
 ⬇️ Скачано треков: <b>{downloads}</b>
 🔍 Поисков: <b>{searches}</b>
-⚙️ Качество: <b>{{"high": "🔥 High", "medium": "⚡ Medium", "low": "💾 Low"}.get(USER_SETTINGS.get(user_id, 'high'))}</b>
+⚙️ Качество: <b>{current_quality}</b>
 
 💡 Продолжай в том же духе!'''
     
